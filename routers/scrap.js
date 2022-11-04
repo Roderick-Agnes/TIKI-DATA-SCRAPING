@@ -1,32 +1,61 @@
 import axios from "axios";
 import express, { response } from "express";
 import cheerio from "cheerio";
+import Product from "../models/Product.js";
+import Category from "../models/Category.js";
 
 const router = express.Router();
 
 const categories = {
   balo: 27608,
   phone: 1795,
+  may_tinh_bang: 1794,
+  giay_the_thao_nam: 6826,
+  sach_tu_duy: 871,
+  truyen_tranh: 1084,
+  tieu_thuyet: 844,
+  truyen_ngan: 845,
+  binh_giu_nhiet: 1936,
+  ban_lam_viec: 4381,
+  tac_pham_kinh_dien: 842,
+  phu_kien_nha_bep: 2514,
+  ke_va_tu: 2514,
+  tu: 23622,
+  sach_hoc_tieng_anh: 1856,
+  tai_nghe: 8400,
 };
 
 const urlKeys = {
   balo: "balo",
   phone: "dien-thoai-smartphone",
+  may_tinh_bang: "may-tinh-bang",
+  giay_the_thao_nam: "giay-the-thao-nam",
+  sach_tu_duy: "sach-ky-nang-song",
+  truyen_tranh: "truyen-tranh",
+  tieu_thuyet: "tieu-thuyet",
+  truyen_ngan: "truyen-ngan-tan-van-tap-van",
+  binh_giu_nhiet: "binh-giu-nhiet",
+  ban_lam_viec: "ban-ghe-lam-viec",
+  tac_pham_kinh_dien: "tac-pham-kinh-dien",
+  phu_kien_nha_bep: "phu-kien-nha-bep-khac",
+  ke_va_tu: "ke-tu",
+  tu: "tu",
+  sach_hoc_tieng_anh: "sach-hoc-tieng-anh",
+  tai_nghe: "tai-nghe-true-wireless",
 };
-
+let customer_category = categories.tu;
 let limit = 15,
   page = 1,
-  category = categories.phone,
-  urlKey = urlKeys.phone;
+  category = categories.tu,
+  urlKey = urlKeys.tu;
 
-const BALO_URI = `https://tiki.vn/api/personalish/v1/blocks/listings?limit=${limit}&page=${page}&include=advertisement&aggregations=2&trackity_id=da5a36f8-d3af-bdd2-665d-eab50bdc0810&category=${category}&urlKey=${urlKey}`;
-const PHONE_URI = `https://tiki.vn/api/personalish/v1/blocks/listings?limit=${limit}&page=${page}&include=advertisement&aggregations=2&trackity_id=da5a36f8-d3af-bdd2-665d-eab50bdc0810&category=${category}&urlKey=${urlKey}`;
+const DATA_URI = `https://tiki.vn/api/personalish/v1/blocks/listings?limit=${limit}&page=${page}&include=advertisement&aggregations=2&trackity_id=da5a36f8-d3af-bdd2-665d-eab50bdc0810&category=${category}&urlKey=${urlKey}`;
 const CATEGORY_URI = `https://tiki.vn/api/personalish/v1/blocks/categories?block_code=featured_categories&trackity_id=da5a36f8-d3af-bdd2-665d-eab50bdc0810`;
 const PHONE_URL =
   "https://tiki.vn/dien-thoai-smartphone/c1795?itm_campaign=tiki-reco_UNK_DT_UNK_UNK_featured-categories_UNK_UNK_UNK_MD_batched_CID.1795&itm_medium=CPC&itm_source=tiki-reco";
 
 // CUSTOM
-let CHOOSE_URI = PHONE_URI;
+let CHOOSE_URI = DATA_URI;
 
 // ROUTERS
 router.get("/scrapV1", async (req, res) => {
@@ -79,6 +108,36 @@ router.get("/scrapV1", async (req, res) => {
   }
 });
 
+router.get("/scrapV2/categories", async (req, res) => {
+  let data = [];
+  await axios(CATEGORY_URI).then((res) => {
+    data = res.data.items;
+    res.data.items.map(async (item) => {
+      if (
+        item.name !== "NGON" &&
+        item.name !== "Khác" &&
+        item.name !== "Xe tay ga" &&
+        item.name !== "Máy massage toàn thân"
+      ) {
+        const isCate = await Category.findOne({ id: item?.id });
+        if (!isCate) {
+          const category = new Category({
+            id: item?.id,
+            title: item?.name,
+            thumbnail: item?.thumbnail_url,
+          });
+          await category.save();
+          console.log("Category saved with title: " + item.name);
+        } else {
+          console.log("Existed category with title: " + item.name);
+        }
+      }
+    });
+  });
+
+  return res.status(200).json(data);
+});
+
 router.get("/scrapV2", async (req, res) => {
   try {
     let end_data = [];
@@ -98,8 +157,9 @@ router.get("/scrapV2", async (req, res) => {
 
         data_no_thumbnails.push({
           id: item?.id,
-          name: item.name,
-          categories: [item.brand_name] || [],
+          title: item.name,
+          category: customer_category,
+          brand_name: [item.brand_name] || [],
           short_description: item.short_description, // new attribute
           salePrice: item.price || 0,
           discount: item.discount || 0, // new attribute
@@ -154,7 +214,33 @@ router.get("/scrapV2", async (req, res) => {
         }
       });
     }
-
+    // save data to db
+    end_data.map(async (item, idx) => {
+      let timer = 0;
+      // console.log(item);
+      const product = await Product.findOne({ id: item.id });
+      if (!product) {
+        const newProduct = new Product(item);
+        await newProduct.save();
+        console.log("Saved product with title: ", item.title);
+      } else {
+        console.log("Product exists on Database with: ", item.title);
+      }
+      // const intervalId = setInterval(async () => {
+      //   const product = await Product.findOne({ id: item.id });
+      //   if (!product) {
+      //     const newProduct = new Product(item);
+      //     await newProduct.save();
+      //     timer += 2000;
+      //     console.log("Saved product with title: ", item.title);
+      //     if (timer === end_data.length * 2000) {
+      //       clearInterval(intervalId);
+      //     }
+      //   } else {
+      //     console.log("Product exists on Database with: ", item.title);
+      //   }
+      // }, 5000);
+    });
     return res.status(200).json(end_data);
   } catch (error) {
     return res.status(500).json(error);
